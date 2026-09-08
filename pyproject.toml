@@ -6,6 +6,16 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 keywords = ["surfsky", "cli", "browser", "automation", "scraping", "antidetect", "agents"]
+authors = [{ name = "Surfsky SDK contributors" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "surfsky>=0.0.6,<0.1",
     "click>=8.2",
@@ -22,6 +32,7 @@ surfsky = "surfsky_cli.main:main"
 Homepage = "https://surfsky.io"
 Documentation = "https://docs.surfsky.io"
 Repository = "https://github.com/surfskyio/surfsky-cli"
+Issues = "https://github.com/surfskyio/surfsky-cli/issues"
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.6", "ty>=0.0.56"]
