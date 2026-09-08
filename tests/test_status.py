@@ -71,6 +71,7 @@ def test_skill_prints_and_installs(home, invoke, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     printed = invoke("skill")
     assert printed.exit_code == 0 and "surfsky session start" in printed.stdout
+    assert printed.stdout.startswith("---\nname: surfsky-cli\n")
     assert "surfsky login" not in printed.stdout and "SURFSKY_API_TOKEN" in printed.stdout
     assert (
         f"surfsky-cli {__version__}" in printed.stdout
@@ -78,4 +79,6 @@ def test_skill_prints_and_installs(home, invoke, tmp_path, monkeypatch):
     )
     installed = invoke("skill", "--install")
     assert installed.exit_code == 0
-    assert (tmp_path / ".claude/skills/surfsky/SKILL.md").read_text() == printed.stdout
+    for root in (".claude/skills", ".agents/skills"):
+        assert (tmp_path / root / "surfsky-cli/SKILL.md").read_text() == printed.stdout
+        assert f"installed: {root}/surfsky-cli/SKILL.md" in installed.stdout

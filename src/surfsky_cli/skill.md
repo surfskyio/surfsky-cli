@@ -1,32 +1,34 @@
 ---
-name: surfsky
+name: surfsky-cli
 description: Use when a task needs to scrape or automate a web page from the shell through a Surfsky antidetect cloud browser, with residential proxies, saved logins, bot-protected pages, or parallel browser jobs.
 compatibility: Requires the surfsky CLI (Python 3.12+, `uv tool install surfsky-cli`) and SURFSKY_API_TOKEN plus SURFSKY_API_BASE_URL from app.surfsky.io. Browser sessions are billed.
 license: MIT
 ---
 
-# surfsky
+# surfsky-cli
 
 ## Setup
 
-Written for surfsky-cli {version}. Before the first command of a task, install or
-upgrade the CLI, then refresh this file when `surfsky --version` is newer than the
-version above:
+Written for surfsky-cli {version}. Use the installed CLI when `surfsky --version`
+prints this version or newer. Install or upgrade only when it is missing, older, or
+the user asks; then refresh this file:
 
 ```sh
 uv tool install surfsky-cli@latest        # or: pipx upgrade surfsky-cli, pip install -U surfsky-cli
-surfsky --version && surfsky skill --install   # rewrites .claude/skills/surfsky/SKILL.md
+surfsky --version && surfsky skill --install
 ```
 
 `uvx --from surfsky-cli@latest surfsky` runs the newest release without installing;
 inside this repository use `uv run surfsky`. The CLI is for work in the current
-session. Code that keeps running inside a product should use the `surfsky` Python
-SDK or the REST API from the docs instead of shelling out to the CLI.
+session. Code that keeps running inside a product should use the `surfsky` Python or
+TypeScript SDK, a framework over CDP, or the REST API instead of shelling out to the
+CLI: read https://surfsky.io/SKILL.md for that.
 
 Set `SURFSKY_API_TOKEN` and `SURFSKY_API_BASE_URL` from the [dashboard](https://app.surfsky.io)
 as environment variables rather than `--api-token` on the command line, so tokens stay
-out of shell history and logs. If they are unset or `status` exits 4, ask the user for
-them; there is no keyless mode. Credentials are not saved; session records live in
+out of shell history and logs. If they are unset or `status` exits 4, ask the user to
+set them in the shell or in a Git-ignored `.env` the project loads; never ask for the
+token in chat. There is no keyless mode. Credentials are not saved; session records live in
 `~/.surfsky` or `SURFSKY_HOME`.
 Run `surfsky status --json` to check credentials, browser capacity, and proxy quota.
 

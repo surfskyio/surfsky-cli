@@ -31,4 +31,6 @@ def test_links_absolute_deduped_http_only():
 def test_title_never_leaks_into_markdown():
     bare = "<html><head><title>T</title></head><body><h1>Hello</h1></body></html>"
     for main_content in (False, True):  # no <main>: the whole document is kept
-        assert html.to_markdown(html.clean(bare, main_content=main_content)) == "# Hello\n"
+        assert (
+            html.to_markdown(html.clean(bare, main_content=main_content)) == "# Hello\n"
+        )

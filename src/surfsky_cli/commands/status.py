@@ -80,23 +80,27 @@ async def session_status(settings: Settings) -> dict[str, Any]:
     return info
 
 
+SKILL_ROOTS = (Path(".claude/skills"), Path(".agents/skills"))
+
+
 @click.command()
 @click.option(
     "--install",
     is_flag=True,
-    help="Write .claude/skills/surfsky/SKILL.md in the current directory.",
+    help="Write SKILL.md into .claude/skills/surfsky-cli and .agents/skills/surfsky-cli.",
 )
 def skill(install: bool) -> None:
-    """Print agent instructions; --install saves them for Claude Code."""
+    """Print agent instructions; --install saves them for Claude Code, Codex and Cursor."""
     text = (resources.files("surfsky_cli") / "skill.md").read_text(encoding="utf-8")
     text = text.replace("{version}", __version__)
     if not install:
         click.echo(text, nl=False)
         return
-    path = Path(".claude/skills/surfsky/SKILL.md")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    click.echo(f"installed: {path}")
+    for root in SKILL_ROOTS:
+        path = root / "surfsky-cli/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        click.echo(f"installed: {path.as_posix()}")
 
 
 COMMANDS: list[click.Command] = [status, skill]

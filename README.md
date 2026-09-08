@@ -106,11 +106,13 @@ To reuse cookies across sessions:
 
 ## Use with coding agents
 
-Run `surfsky skill --install` to install a Claude Code skill at
-`.claude/skills/surfsky/SKILL.md`. For other agents, `surfsky skill` prints the
-same instructions. The skill records the CLI version and includes upgrade
-instructions. After upgrading with `uv tool install surfsky-cli@latest`, run
-`surfsky skill --install` again to update it.
+Run `surfsky skill --install` to install the `surfsky-cli` skill at
+`.claude/skills/surfsky-cli/SKILL.md` (Claude Code, Cursor) and
+`.agents/skills/surfsky-cli/SKILL.md` (Codex, Cursor, Gemini CLI). For other agents,
+`surfsky skill` prints the same instructions. The skill records the CLI version and
+includes upgrade instructions. After upgrading with `uv tool install surfsky-cli@latest`,
+run `surfsky skill --install` again to update it. For SDK, API, or Playwright/Puppeteer
+integrations, use the umbrella skill at <https://surfsky.io/SKILL.md>.
 
 - Use `--json` or `SURFSKY_JSON=1`. Success includes `ok: true`; errors include
   `ok: false` and an `error` object with `code`, `message`, `hint`, and `retryable`.
