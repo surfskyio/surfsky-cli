@@ -22,7 +22,6 @@ Copy your API token and base URL from the [dashboard](https://app.surfsky.io).
 ```bash
 export SURFSKY_API_TOKEN='your-token'
 export SURFSKY_API_BASE_URL='your-base-url'
-surfsky status
 ```
 
 **macOS (zsh)**
@@ -30,7 +29,6 @@ surfsky status
 ```zsh
 export SURFSKY_API_TOKEN='your-token'
 export SURFSKY_API_BASE_URL='your-base-url'
-surfsky status
 ```
 
 **Windows (PowerShell)**
@@ -38,6 +36,11 @@ surfsky status
 ```powershell
 $env:SURFSKY_API_TOKEN = 'your-token'
 $env:SURFSKY_API_BASE_URL = 'your-base-url'
+```
+
+Then verify your credentials:
+
+```sh
 surfsky status
 ```
 
