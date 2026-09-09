@@ -81,6 +81,9 @@ surfsky screenshot -o results.png --session <uuid>
 surfsky session stop --session <uuid>
 ```
 
+`surfsky scrape <url> --keep` collapses the first two steps into one: it reads
+the page, leaves the browser running, and prints the session ID.
+
 A unique prefix of the session ID is enough, and `--session` can go anywhere
 on the line.
 
