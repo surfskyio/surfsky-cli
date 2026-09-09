@@ -106,3 +106,7 @@ Rerun it after upgrading the CLI. `surfsky skill` prints the instructions.
 uv sync --all-groups
 uv run pytest -q
 ```
+
+## License
+
+MIT
