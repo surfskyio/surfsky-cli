@@ -293,6 +293,8 @@ async def resolve_target(a: Attached, target: str) -> str:
     selector = refs.get(target[1:])
     if selector is None:
         raise StaleRef(f"unknown ref {target}")
-    if await a.page.count(selector) == 0:
-        raise StaleRef(f"{target} ({selector}) is no longer on the page")
+    matches = await a.page.count(selector)
+    if matches != 1:
+        what = "is no longer on the page" if matches == 0 else f"now matches {matches} elements"
+        raise StaleRef(f"{target} ({selector}) {what}")
     return selector

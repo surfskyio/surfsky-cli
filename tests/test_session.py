@@ -127,6 +127,8 @@ def test_resolve_ref_checks_tab_url_and_presence():
         resolve(good, "@2")
     with pytest.raises(out.StaleRef, match="no longer on the page"):
         resolve(attached_with(FakePage(counts={})), "@1")
+    with pytest.raises(out.StaleRef, match="now matches 2 elements"):
+        resolve(attached_with(FakePage(counts={"#login": 2})), "@1")
 
 
 def test_resolve_text_uses_walker():
