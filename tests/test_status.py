@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from surfsky.types import BrowserLimits, ProxyQuota, SessionLimits
+from surfsky.types import BrowserLimits, ProxyQuota
 
 from surfsky_cli import __version__, config
 
@@ -12,16 +12,11 @@ class FakeClient:
     base_url = "https://api.test"
 
     def __init__(self, *args, **kwargs):
-        self.account = SimpleNamespace(
-            browser_limits=self._browser_limits, session_limits=self._session_limits
-        )
+        self.account = SimpleNamespace(browser_limits=self._browser_limits)
         self.proxies = SimpleNamespace(quota=self._quota, shared_quota=self._quota)
 
     async def _browser_limits(self):
         return BrowserLimits(parallel_browsers=3, running=1, available=2)
-
-    async def _session_limits(self):
-        return SessionLimits(has_session_limits=False)
 
     async def _quota(self):
         return ProxyQuota(remaining_gb=1.5)

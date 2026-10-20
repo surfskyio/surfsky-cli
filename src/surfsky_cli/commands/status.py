@@ -44,7 +44,6 @@ async def cloud_status(settings: Settings) -> dict[str, Any]:
         info["plan"] = (data or {}).get("plan")
         # Optional quota endpoints may be unavailable on this plan.
         for name, call in (
-            ("session_limits", client.account.session_limits),
             ("premium_proxy", client.proxies.quota),
             ("shared_proxy", client.proxies.shared_quota),
         ):
