@@ -125,7 +125,7 @@ surfsky proxy quota && surfsky proxy quota --shared
 - `--proxy <url>`: `http`, `https`, `socks5`, `ssh`, or `ss` URL with URL-encoded credentials. Targeting flags are a usage error here. Only SOCKS5 with UDP carries the browser's UDP traffic.
 - Fingerprint: `--os win|mac|android` (android for mobile sites), `--os-version 11`, `--arch x86|arm`. Timezone, language, and geolocation follow the proxy IP. A profile's OS is fixed at creation (`profile create` requires `--os`), so `--os` cannot go with `--profile`.
 - `session start` and `scrape` also take `--block image,font,media,stylesheet`, `--idle-timeout`, and `--extension <uuid>` (repeatable, max 5) after `surfsky extension upload ext.zip --name helper`. `--dialogs accept` is `session start` only; `scrape` dismisses dialogs.
-- CAPTCHA solving needs `anti_captcha` at browser start, which the CLI and Python SDK do not expose. Read [CAPTCHA solving](https://docs.surfsky.io/captcha-solving) and use the REST API for it; do not guess a CLI flag.
+- The CLI has no CAPTCHA command; do not guess a flag. Send `Captcha.solve` (or `Captcha.autoSolve` with `types`) through the Python SDK's `browser.send`, or start over REST and send it over CDP, as [CAPTCHA solving](https://docs.surfsky.io/captcha-solving) shows.
 
 ## Targets
 
