@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -310,7 +310,7 @@ wheels = [
 
 [[package]]
 name = "surfsky"
-version = "0.0.6"
+version = "0.0.22"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -319,9 +319,9 @@ dependencies = [
     { name = "tenacity" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/64/f6/7b1a4295edb1788638b056c0fdaa3ac3102936889002374d1d336514e358/surfsky-0.0.6.tar.gz", hash = "sha256:b07d4ac72cbcb6508f43d58fdd9506a904d4ce13b214df2f89dc0e8504b4e569", size = 80504, upload-time = "2026-09-03T16:31:10.635Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d0/e6/b0979e534afb55729faa2f7a7a828127d3f7127d2e18658c87879c88d0f7/surfsky-0.0.22.tar.gz", hash = "sha256:4bd44fe2831ac74dc25679bad45f4a30733d51d2a5fd8ad07fcf604d51bad73f", size = 82834, upload-time = "2026-11-08T22:40:33.828Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/97/239608e59f62fe11c1e2ea4a69b2fc06955e7979bee881870068397c540b/surfsky-0.0.6-py3-none-any.whl", hash = "sha256:ffa67fe39724f3beee9f4e5adbea95cd6fe19b406a1dd81f97fa49a990d9f1a9", size = 44165, upload-time = "2026-09-03T16:31:09.717Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/44/809b039ad257c9dd9daa3bfcb7c60b07b9a861369e0d17fa7af827b8a546/surfsky-0.0.22-py3-none-any.whl", hash = "sha256:79ffd2f7606353d81f4dfab91808d98483c9577d1f5bb62d6e6e0b020176e190", size = 41472, upload-time = "2026-11-08T22:40:32.822Z" },
 ]
 
 [[package]]
@@ -351,7 +351,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.2" },
     { name = "markdownify", specifier = ">=1.1" },
     { name = "pydantic", specifier = ">=2.8" },
-    { name = "surfsky", specifier = ">=0.0.6,<0.1" },
+    { name = "surfsky", specifier = ">=0.0.22,<0.1" },
 ]
 
 [package.metadata.requires-dev]

@@ -49,9 +49,12 @@ One format returns content; multiple formats return JSON. `html` is cleaned;
 `raw_html` is unchanged. Scrape screenshots are base64 unless saved with `-o`
 in text mode.
 
-By default, `scrape` closes its browser when finished. `--keep` leaves it
-running and returns its ID. `--profile ID` uses a saved profile.
-`--session ID` reuses the active tab; omit the URL to read its current page.
+By default, `scrape` goes through the Scraping API: a pre-started browser
+behind Surfsky's residential proxy answers, with no session to start or stop.
+`--profile ID`, `--keep` (leaves the browser running and returns its ID) and
+the proxy and fingerprint flags start a browser for the scrape instead.
+`--session ID` reads in a running browser; omit the URL to read its current
+page.
 
 ## Browser sessions
 

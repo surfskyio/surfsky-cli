@@ -1,8 +1,9 @@
 import base64
-from typing import Any
+from typing import Any, cast
 
 import click
 from surfsky import BrowserSettings, Page
+from surfsky.types import ScreenshotOptions
 
 from .. import html, session
 from ..config import Settings
@@ -75,9 +76,12 @@ def scrape(
 ) -> None:
     """Read URL as markdown; use --format for HTML, links or screenshots.
 
-    Uses the selected session, or starts and stops a browser. Without URL,
-    reads the selected session's current page. Use -f screenshot -o file.png
-    to save PNG bytes; screenshots in JSON are base64.
+    By default the Scraping API serves the page from a pre-started browser:
+    no session to start or stop. With --session it reads in that browser
+    (without URL, its current page). --profile, --keep, --idle-timeout,
+    --extension and the proxy/fingerprint flags start a browser for this
+    scrape. Use -f screenshot -o file.png to save PNG bytes; screenshots in
+    JSON are base64.
     """
     if keep and settings.session_ref():
         raise click.UsageError(
@@ -96,26 +100,87 @@ def scrape(
         )
     if (screenshot or full_page) and "screenshot" not in wanted:
         wanted.append("screenshot")
-    data = run(
-        fetch(
-            settings,
-            with_scheme(url) if url else None,
-            profile=profile,
-            keep=keep,
-            idle_timeout=idle_timeout,
-            opts=opts,
-            wait_until=wait_until,
-            wait_for=wait_for,
-            timeout=timeout,
-            want_shot="screenshot" in wanted,
-            full_page=full_page,
-        )
+    how: dict[str, Any] = {
+        "wait_until": wait_until,
+        "wait_for": wait_for,
+        "timeout": timeout,
+        "full_page": full_page,
+    }
+    own_browser = (
+        profile
+        or keep
+        or idle_timeout
+        or any(value for name, value in opts.items() if name != "block")
     )
-    result = build(data, wanted, main_content=only_main_content)
+    if url and not settings.session_ref() and not own_browser:
+        result = run(
+            scrape_api(
+                settings,
+                with_scheme(url),
+                wanted,
+                main_content=only_main_content,
+                block=session.split(opts.get("block")),
+                **how,
+            )
+        )
+    else:
+        data = run(
+            fetch(
+                settings,
+                with_scheme(url) if url else None,
+                profile=profile,
+                keep=keep,
+                idle_timeout=idle_timeout,
+                opts=opts,
+                want_shot="screenshot" in wanted,
+                **how,
+            )
+        )
+        result = build(data, wanted, main_content=only_main_content)
     if len(wanted) == 1 and not json_mode:
         single(result, wanted[0], output)
     else:
         emit(result, json_mode=True, output=output, pretty=pretty)
+
+
+async def scrape_api(
+    settings: Settings,
+    url: str,
+    formats: list[str],
+    *,
+    main_content: bool,
+    block: list[str],
+    wait_until: Any,
+    wait_for: str | None,
+    timeout: float,
+    full_page: bool,
+) -> dict[str, Any]:
+    """POST /scrape: a pre-started browser, the server renders the formats."""
+    async with settings.client() as client:
+        page = await client.scrape(
+            url,
+            formats=cast(Any, formats),
+            only_main_content=main_content,
+            screenshot_options=ScreenshotOptions(full_page=full_page),
+            wait_until=wait_until,
+            wait_for=wait_for,
+            timeout=int(timeout * 1000),
+            block_resources=cast(Any, block) or None,
+        )
+    found = {
+        "challenge": page.challenge and page.challenge.model_dump(exclude_none=True),
+        "markdown": page.markdown,
+        "html": page.content,
+        "links": page.links,
+        "raw_html": page.raw_html,
+        "screenshot": page.screenshot,
+    }
+    return {
+        "url": page.final_url or page.url,
+        "status": page.status,
+        "title": page.title,
+        **{name: value for name, value in found.items() if value is not None},
+    }
 
 
 async def fetch(

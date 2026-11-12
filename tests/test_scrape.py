@@ -1,8 +1,11 @@
 import base64
 import json
+from unittest.mock import AsyncMock
 
 import pytest
+from surfsky.types import ScrapeResult
 
+from surfsky_cli import config
 from surfsky_cli.commands import scrape
 
 HTML = (
@@ -13,6 +16,7 @@ HTML = (
 
 @pytest.fixture
 def fetched(home, monkeypatch):
+    monkeypatch.setenv("SURFSKY_SESSION", "S1")
     seen = {}
 
     async def fetch(settings, url, **how):
@@ -76,7 +80,51 @@ def test_unknown_format_is_usage_error(fetched, invoke):
     assert result.exit_code == 2 and "pdf" in result.stderr
 
 
-def test_scheme_is_added(fetched, invoke):
+def test_scheme_is_added(fetched, invoke, monkeypatch):
+    monkeypatch.delenv("SURFSKY_SESSION")
     invoke("scrape", "example.com", "--wait-for", "#done", "--profile", "P1")
     assert fetched["url"] == "https://example.com" and fetched["wait_for"] == "#done"
     assert fetched["profile"] == "P1" and fetched["keep"] is False
+
+
+@pytest.fixture
+def api(home, monkeypatch):
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.scrape.return_value = ScrapeResult(
+        url="https://e.test/",
+        final_url="https://e.test/final",
+        status=200,
+        title="Hi",
+        markdown="# Hi",
+        links=["https://e.test/x"],
+        screenshot=base64.b64encode(b"\x89PNG").decode(),
+    )
+    monkeypatch.setattr(config.Settings, "client", lambda self: client)
+    monkeypatch.setattr(scrape, "fetch", None)
+    return client
+
+
+def test_url_alone_uses_the_scraping_api(api, invoke, tmp_path):
+    result = invoke("scrape", "e.test", "--block", "image", "--timeout", "5")
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout == "# Hi\n"
+    (url,), sent = api.scrape.call_args
+    assert url == "https://e.test" and sent["formats"] == ["markdown"]
+    assert sent["only_main_content"] is False and sent["timeout"] == 5000
+    assert sent["block_resources"] == ["image"] and sent["wait_until"] == "load"
+    data = json.loads(invoke("scrape", "e.test", "-f", "markdown,links").stdout)
+    assert data["url"] == "https://e.test/final" and data["links"] == ["https://e.test/x"]
+    target = tmp_path / "shot.png"
+    invoke("scrape", "e.test", "-f", "screenshot", "--full-page", "-o", str(target))
+    assert target.read_bytes() == b"\x89PNG"
+    assert api.scrape.call_args.kwargs["screenshot_options"].full_page is True
+
+
+@pytest.mark.parametrize(
+    "flags", [("--keep",), ("--profile", "P1"), ("--country", "us"), ("--os", "mac")]
+)
+def test_browser_options_start_a_browser(fetched, invoke, monkeypatch, flags):
+    monkeypatch.delenv("SURFSKY_SESSION")
+    assert invoke("scrape", "e.test", *flags).exit_code == 0
+    assert fetched["url"] == "https://e.test"
