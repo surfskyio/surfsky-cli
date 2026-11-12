@@ -293,3 +293,16 @@ def test_start_defaults_idle_timeout(home):
     assert (
         record["idle_timeout"] == 300 and config.load_session("S2")["idle_timeout"] == 300
     )
+
+
+def test_start_without_save_writes_no_record(home):
+    record = asyncio.run(
+        session.start(
+            FakeClient(),
+            profile_uuid=None,
+            idle_timeout=60,
+            dialogs="dismiss",
+            save=False,
+        )
+    )
+    assert record["internal_uuid"] == "S2" and config.load_session("S2") is None

@@ -129,9 +129,13 @@ async def start(
     idle_timeout: int | None,
     dialogs: str,
     block_resources: frozenset[str] | set[str] | None = None,
+    save: bool = True,
     **options: Any,
 ) -> dict[str, Any]:
-    """Save the session before connecting so a failed command can still stop billing."""
+    """Save the session before connecting so a failed command can still stop billing.
+
+    `save=False` returns the record without writing it, for a caller that keeps its own.
+    """
     idle_timeout = idle_timeout or DEFAULT_IDLE_TIMEOUT
     options["browser_settings"] = BrowserSettings(inactive_kill_timeout=idle_timeout)
     if profile_uuid:
@@ -154,8 +158,9 @@ async def start(
             else None
         ),
     }
-    config.save_session(record)
-    config.save_state(session.internal_uuid, {"last_used": time.time()})
+    if save:
+        config.save_session(record)
+        config.save_state(session.internal_uuid, {"last_used": time.time()})
     return record
 
 
