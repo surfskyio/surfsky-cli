@@ -64,6 +64,8 @@ async def navigation(
     if status:
         result["status"] = a.page.status
     if data is not None:
+        if note := data.pop("note", None):
+            result["note"] = note
         snapshot.save_refs(a.state, a.page.target_id, result["url"], data)
         result["snapshot"] = data
     return result
@@ -171,7 +173,8 @@ def reload(
     help="Only elements you can act on (no headings).",
 )
 @click.option(
-    "--find", help="Only elements whose role, name, href or selector contain these words."
+    "--find",
+    help="Only elements whose role, name, href or selector contain these words; a|b matches either.",
 )
 @click.option(
     "--limit", type=int, default=500, show_default=True, help="Maximum elements."

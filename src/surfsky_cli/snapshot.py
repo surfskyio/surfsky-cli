@@ -1,11 +1,10 @@
 import contextlib
 import json
+import re
 from typing import Any
 
 import anyio
 from surfsky import Page, SurfskyError
-
-from .out import scalar
 
 # Read the DOM in the SDK's isolated context; resolve refs through CSS selectors.
 # ponytail: accessible names are approximated here; switch to
@@ -63,9 +62,11 @@ SCRIPT = r"""(limit, interactive, find) => {
     const style = getComputedStyle(el);
     return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
   };
-  const needle = (find || '').toLowerCase();
-  const matches = item => !needle
-    || [item.role, item.name, item.href || '', item.selector].join(' ').toLowerCase().includes(needle);
+  const needles = (find || '').toLowerCase().split('|').map(s => s.trim()).filter(Boolean);
+  const matches = item => {
+    const text = [item.role, item.name, item.href || '', item.selector].join(' ').toLowerCase();
+    return !needles.length || needles.some(needle => text.includes(needle));
+  };
   const items = [];
   let ref = 0, total = 0;
   for (const el of document.querySelectorAll(selector)) {
@@ -119,18 +120,28 @@ def save_refs(
     state["unreachable"] = len(data.get("unreachable") or [])
 
 
+def quote(value: Any) -> str:
+    # JSON escapes ASCII line breaks and leaves the Unicode ones
+    return re.sub(r"\s", " ", json.dumps(value, ensure_ascii=False))
+
+
+def token(value: Any) -> str:
+    """A str bare when it cannot be read as more than one field or row, else quoted."""
+    plain = isinstance(value, str) and value.isprintable() and value
+    return value if plain and not re.search(r'[\s"]', value) else quote(value)
+
+
 def render_items(data: dict[str, Any]) -> str:
     lines = []
     for item in data["items"]:
-        name = json.dumps(item.get("name", ""), ensure_ascii=False)
-        head = f"[@{item['ref']}] {item['role']} {name}"
+        head = f"[@{item['ref']}] {token(item['role'])} {quote(item.get('name', ''))}"
         if item.get("level"):
             head += f" (h{item['level']})"
-        extra = " ".join(f"{key}={scalar(item[key])}" for key in KEYS if key in item)
+        extra = " ".join(f"{key}={token(item[key])}" for key in KEYS if key in item)
         lines.append(f"{head} {extra}".rstrip())
     for block in data.get("unreachable") or []:
         what = (
-            f"src={block['src']}"
+            f"src={token(block['src'])}"
             if block["kind"] == "iframe"
             else f"<{block['tag']}> shadow root"
         )
@@ -142,13 +153,25 @@ def render_items(data: dict[str, Any]) -> str:
 
 
 def render(data: dict[str, Any]) -> str:
-    return f"url: {data['url']}  title: {data['title']}\n" + render_items(data)
+    title = " ".join(data["title"].split())
+    return f"url: {data['url']}  title: {title}\n" + render_items(data)
+
+
+async def wait_for_load(page: Page) -> None:
+    """Wait for the page to load after an action, up to 10 s."""
+    # TODO: listen for Page.frameStartedLoading instead of sleeping
+    await anyio.sleep(0.3)
+    with contextlib.suppress(SurfskyError):
+        await page.wait_for_load_state("load", timeout=10.0)
 
 
 async def after_action(page: Page, *, limit: int = 500) -> dict[str, Any]:
-    """Allow navigation to start before waiting for load and reading the DOM."""
-    await anyio.sleep(0.3)
-    # a page that never fires load still gets its snapshot
-    with contextlib.suppress(SurfskyError):
-        await page.wait_for_load_state("load", timeout=10.0)
-    return await take(page, limit=limit)
+    for _ in range(3):
+        await wait_for_load(page)
+        url = await page.url()
+        data = await take(page, limit=limit)
+        if await page.url() == url:
+            break
+    else:
+        data["note"] = "the page was still navigating; the snapshot may be incomplete"
+    return data

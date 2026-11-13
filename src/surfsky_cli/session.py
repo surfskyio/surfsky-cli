@@ -301,5 +301,5 @@ async def resolve_target(a: Attached, target: str) -> str:
     matches = await a.page.count(selector)
     if matches != 1:
         what = "is no longer on the page" if matches == 0 else f"now matches {matches} elements"
-        raise StaleRef(f"{target} ({selector}) {what}")
+        raise StaleRef(f"{target} {what}")
     return selector

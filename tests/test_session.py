@@ -125,9 +125,9 @@ def test_resolve_ref_checks_tab_url_and_presence():
         )
     with pytest.raises(out.StaleRef, match="unknown ref @2"):
         resolve(good, "@2")
-    with pytest.raises(out.StaleRef, match="no longer on the page"):
+    with pytest.raises(out.StaleRef, match="^@1 is no longer on the page$"):
         resolve(attached_with(FakePage(counts={})), "@1")
-    with pytest.raises(out.StaleRef, match="now matches 2 elements"):
+    with pytest.raises(out.StaleRef, match="^@1 now matches 2 elements$"):
         resolve(attached_with(FakePage(counts={"#login": 2})), "@1")
 
 

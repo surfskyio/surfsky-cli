@@ -6,10 +6,12 @@ import pytest
 from click.testing import CliRunner
 from surfsky import (
     AuthenticationError,
+    BadRequestError,
     BrowserTimeoutError,
     CDPError,
     ConfigurationError,
     MonthlySessionLimitError,
+    PaymentRequiredError,
     RateLimitError,
     ServerError,
 )
@@ -103,6 +105,27 @@ def test_json_env_default(monkeypatch):
             "session list",
         ),
         (RateLimitError("slow", status_code=429), "rate_limit", 7, None),
+        (
+            BadRequestError(
+                "no persistent profiles on your plan",
+                status_code=400,
+                body={"code": "persistent_profiles_not_allowed"},
+            ),
+            "plan_limit",
+            7,
+            None,
+        ),
+        (
+            PaymentRequiredError(
+                "balance is empty",
+                status_code=402,
+                body={"code": "insufficient_balance"},
+            ),
+            "insufficient_balance",
+            7,
+            None,
+        ),
+        (BadRequestError("bad os", status_code=400), "api", 1, None),
         (ServerError("boom", status_code=502), "api", 1, None),
         (CDPError("Human.click 'x': timeout waiting"), "timeout", 5, None),
         (CDPError("Human.click 'x': bad"), "browser", 1, None),

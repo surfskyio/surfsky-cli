@@ -16,6 +16,7 @@ from surfsky import (
     CDPError,
     ConfigurationError,
     MonthlySessionLimitError,
+    PaymentRequiredError,
     PremiumTrafficLimitError,
     RateLimitError,
     SharedTrafficLimitError,
@@ -33,6 +34,13 @@ EXIT_TIMEOUT = 5
 EXIT_NOT_FOUND = 6
 EXIT_QUOTA = 7
 RETRYABLE = frozenset({"timeout", "rate_limit", "plan_full", "network"})
+PLAN_LIMITS = frozenset(
+    {
+        "persistent_profiles_not_allowed",
+        "profiles_limit_reached",
+        "extension_limit_reached",
+    }
+)
 
 pass_settings = click.make_pass_decorator(Settings)
 
@@ -140,6 +148,10 @@ def classify(exc: BaseException) -> CliError:
                     message, code="plan_full", exit_code=EXIT_QUOTA, hint=hint
                 )
             return CliError(message, code="rate_limit", exit_code=EXIT_QUOTA)
+        case PaymentRequiredError():
+            return CliError(message, code="insufficient_balance", exit_code=EXIT_QUOTA)
+        case APIError() if exc.code in PLAN_LIMITS:
+            return CliError(message, code="plan_limit", exit_code=EXIT_QUOTA)
         case APIConnectionError():
             return CliError(message, code="network")
         case APIError():

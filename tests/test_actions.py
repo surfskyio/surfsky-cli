@@ -44,6 +44,36 @@ def test_click_by_ref_selector_and_text(fake, invoke):
     assert fake.page.called("click")[-1][1] == ("a.si",)
 
 
+def test_click_snapshot_follows_late_navigation(fake, invoke):
+    async def evaluate(expression, *args, **kwargs):
+        if fake.page._url == "https://e.test/":
+            fake.page._url = "https://e.test/next"
+            return {"items": [], "total": 0, "unreachable": []}
+        return FOUND
+
+    fake.page.evaluate = evaluate
+    result = invoke("click", "#go", "-s")
+    assert result.stdout == (
+        'url: https://e.test/next\ntitle: E\nnavigated: true\n[@3] link "Sign in"\n'
+    )
+    assert config.load_state("S1")["refs"] == {"3": "a.si"}
+
+
+def test_click_snapshot_says_when_the_page_never_stopped_navigating(fake, invoke):
+    hops = iter(range(10))
+
+    async def evaluate(expression, *args, **kwargs):
+        fake.page._url = f"https://e.test/{next(hops)}"
+        return {"items": [], "total": 0, "unreachable": []}
+
+    fake.page.evaluate = evaluate
+    result = invoke("click", "#go", "-s")
+    assert result.stdout == (
+        "url: https://e.test/2\ntitle: E\nnavigated: true\n"
+        "note: the page was still navigating; the snapshot may be incomplete\n"
+    )
+
+
 def test_click_errors(fake, invoke):
     stale = invoke("click", "@9")
     assert stale.exit_code == 6 and stale.stderr.startswith(
