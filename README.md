@@ -1,8 +1,7 @@
 # surfsky-cli
 
-CLI for [Surfsky](https://surfsky.io), an antidetect cloud browser.
-
-Requires Python 3.12+ on macOS, Windows or Linux.
+CLI for [Surfsky](https://surfsky.io), an antidetect cloud browser: scrape a
+page in one command, or keep a browser session open and control it from the shell.
 
 ## Install
 
@@ -10,98 +9,91 @@ Requires Python 3.12+ on macOS, Windows or Linux.
 uv tool install surfsky-cli
 ```
 
-Or install with `pipx install surfsky-cli` or `pip install surfsky-cli`.
+Needs Python 3.12+. `pipx install surfsky-cli` and `pip install surfsky-cli` work too.
 
 ## Credentials
 
-Get your API token and base URL from the [dashboard](https://app.surfsky.io).
-
-macOS / Linux:
+Token and base URL come from the [dashboard](https://app.surfsky.io).
 
 ```sh
 export SURFSKY_API_TOKEN='your-token'
 export SURFSKY_API_BASE_URL='your-base-url'
+surfsky status    # account limits and proxy quota
 ```
 
-Windows (PowerShell):
-
-```powershell
-$env:SURFSKY_API_TOKEN = 'your-token'
-$env:SURFSKY_API_BASE_URL = 'your-base-url'
-```
-
-Verify with `surfsky status`. Flags `--api-token` and `--base-url` override
-the environment. Credentials are not stored. Session records go in
-`~/.surfsky`; set `SURFSKY_HOME` to change the directory.
+PowerShell: `$env:SURFSKY_API_TOKEN = 'your-token'`. `--api-token` and `--base-url`
+override the environment. Credentials are not stored; session records go to
+`~/.surfsky`, or to `SURFSKY_HOME` if set.
 
 ## Scrape
 
 ```sh
-surfsky scrape https://example.com                         # Markdown
-surfsky scrape https://example.com --only-main-content     # omit navigation, footers, forms
+surfsky scrape https://example.com --only-main-content   # markdown, no navigation or footers
 surfsky scrape https://example.com -f markdown,links --json --pretty
 surfsky scrape https://example.com -f screenshot -o shot.png
-surfsky scrape https://example.com --proxy premium --country us --os mac
 ```
 
-Formats: `markdown` (default), `html`, `raw_html`, `links`, `screenshot`.
-One format returns content; multiple formats return JSON. `html` is cleaned;
-`raw_html` is unchanged. Scrape screenshots are base64 unless saved with `-o`
-in text mode.
+Formats: `markdown`, `html` (cleaned), `raw_html`, `links`, `screenshot`. One
+format prints its content, several print JSON.
 
-By default, `scrape` goes through the Scraping API: a pre-started browser
-behind Surfsky's residential proxy answers, with no session to start or stop.
-`--profile ID`, `--keep` (leaves the browser running and returns its ID) and
-the proxy and fingerprint flags start a browser for the scrape instead.
-`--session ID` reads in a running browser; omit the URL to read its current
-page.
+A plain `scrape URL` goes through the Scraping API: a pre-started browser behind
+a residential proxy, no session to stop. `--profile`, `--keep`, `--idle-timeout`,
+`--extension` and the proxy and fingerprint flags start a browser for that scrape
+instead; `--keep` leaves it running and returns its session ID. `--session ID`
+reads in a running browser, the current page if no URL is given.
 
-## Browser sessions
+## Sessions
 
 ```sh
-surfsky session start --proxy premium --proxy-type mobile --country us
-export SURFSKY_SESSION='returned-session-id'
-surfsky goto https://google.com
-surfsky type 'textarea[name=q]' surfsky
-surfsky press Enter -s
+surfsky session start                 # prints session: <id>
+export SURFSKY_SESSION='<id>'         # or --session <id>; a unique prefix works
+surfsky goto https://example.com -s
+surfsky click @2 -s
 surfsky get text
-surfsky screenshot -o results.png
+surfsky screenshot -o page.png
 surfsky session stop
 ```
 
-Replace `returned-session-id` with the ID from `session start`. On PowerShell,
-use `$env:SURFSKY_SESSION = 'returned-session-id'`. You can also pass
-`--session ID` on each command; unique ID prefixes work.
+A session bills per minute, idle time included, until `session stop` or
+`--idle-timeout` seconds without a command (default 300, max 3600).
+`surfsky status` reconnects to the selected session and resets that timer.
 
-Sessions bill per minute, including idle time, until stopped or the idle
-timeout expires. Set `--idle-timeout SECONDS` when starting a session.
-`surfsky status` checks the selected session's connection and resets its idle
-timer. `surfsky session devtools` prints live view and DevTools URLs.
+`-s` appends a snapshot, one row per visible element, like
+`[@2] link "More information..." href=https://www.iana.org/domains/example`.
+`surfsky snapshot` prints one on its own. A target is `@N`, a CSS selector or
+`text=words`. Each snapshot replaces the refs: take a new one after navigation
+or a tab switch.
 
-`-s` returns a snapshot with `@N` references for `click`, `type` and `fill`.
-CSS selectors and `text=words` also work. Take a new snapshot after navigation
-or a tab switch; each snapshot replaces the references.
+`session start` and `scrape` take `--proxy premium|shared|URL`,
+`--proxy-type residential|mobile`, `--country`, `--region`, `--city` and
+`--os win|mac|android`. To keep logins between sessions, run
+`surfsky profile create acct --os win --country us`, then
+`surfsky session start --profile ID`.
 
-Sessions and scrapes accept `--proxy premium|shared|URL`, `--proxy-type mobile`,
-`--country`, `--region`, `--city`, and `--os win|mac|android`.
-See `surfsky proxy --help` for location lists and quota commands.
+`surfsky --help` lists the rest, among them `fill`, `type`, `wait`, `tab`,
+`cookies`, `eval`, `cdp` and `session devtools` for a live view URL.
 
-To save logins, create a profile with `surfsky profile create acct --country us --os win`,
-then use its ID with `surfsky session start --profile ID`.
+## Output and exit codes
 
-## Agents and scripts
+`--json`, or `SURFSKY_JSON=1`, prints `{"ok": true, ...}` on success and
+`{"ok": false, "error": {...}}` with `code`, `message`, `hint` and `retryable`
+on failure, both on stdout. Text errors go to stderr. `-o FILE` saves the output.
 
-`surfsky skill --install` writes agent instructions to
-`.claude/skills/surfsky-cli/SKILL.md` and `.agents/skills/surfsky-cli/SKILL.md`.
-Rerun it after upgrading the CLI. `surfsky skill` prints the instructions.
+| Exit | Meaning                                      |
+| ---- | -------------------------------------------- |
+| 1    | error                                        |
+| 2    | usage                                        |
+| 3    | missing or expired session                   |
+| 4    | authentication                               |
+| 5    | timeout                                      |
+| 6    | target not found or stale `@N`               |
+| 7    | quota, plan limit, rate limit, empty balance |
 
-- `--json` or `SURFSKY_JSON=1`: success returns `ok: true`; errors return
-  `ok: false` with `code`, `message`, `hint` and `retryable` under `error`.
-  JSON errors go to stdout; text errors go to stderr.
-- `-o FILE` saves output; `--pretty` indents JSON. For `screenshot`, `-o`
-  saves PNG and `--json` returns its path and size.
-- Exit codes: 0 success, 1 error, 2 usage, 3 missing or expired session,
-  4 authentication, 5 timeout, 6 not found or stale reference, 7 quota or plan limit.
+## Agent skill
+
+`surfsky skill --install` writes `.claude/skills/surfsky-cli/SKILL.md` and
+`.agents/skills/surfsky-cli/SKILL.md` in the current directory. Rerun it after
+upgrading the CLI. `surfsky skill` prints the same text.
 
 ## Development
 
