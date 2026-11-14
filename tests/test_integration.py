@@ -1,5 +1,3 @@
-"""The real SDK Browser and CDP client over a scripted CDP: reconnect, tab pick, blocking, dialogs."""
-
 import asyncio
 
 import pytest

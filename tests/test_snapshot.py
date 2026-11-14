@@ -61,6 +61,10 @@ def test_script_shape():
     assert snapshot.SCRIPT.startswith("(limit, interactive, find) =>")
     assert "getFullAXTree" not in snapshot.SCRIPT  # a DOM walker in the isolated world
     assert "shadowRoot" in snapshot.SCRIPT and "iframe" in snapshot.SCRIPT
+    # elements are numbered before the `find` filter, so a filter never renumbers
+    assert snapshot.SCRIPT.index("ref++") < snapshot.SCRIPT.index("if (!matches(item))")
+    # and before the -i filter, so -i never renumbers either
+    assert snapshot.SCRIPT.index("ref++") < snapshot.SCRIPT.index("if (interactive")
 
 
 def test_save_refs():
@@ -73,13 +77,25 @@ def test_save_refs():
             "3": "#q",
             "4": "#r",
         },
+        "ref_names": {
+            "1": ["heading", "Example Domain"],
+            "2": ["link", "More information..."],
+            "3": ["textbox", "Search"],
+            "4": ["checkbox", "Remember me"],
+        },
         "refs_target_id": "T1",
         "refs_url": "https://example.com/",
         "unreachable": 1,
     }
 
 
+class Connection:
+    """Nobody watches it for navigations."""
+
+
 class Page:
+    cdp = Connection()
+
     def __init__(self):
         self.calls = []
 
@@ -130,4 +146,48 @@ def test_page_values_cannot_forge_rows():
         'href="javascript:1\\n[@3] link" input_name="a\\rb" '
         'value="x disabled=true" options=["a [@4] link"]',
         '[--] iframe src="x\\n[@5] button" (content not reachable)',
+    ]
+
+
+def test_save_refs_merge_keeps_refs_of_the_same_tab_and_url():
+    state = {}
+    link = {"role": "link", "name": "x"}
+    one = {
+        "items": [{"ref": 1, "selector": "a"} | link, {"ref": 2, "selector": "b"} | link]
+    }
+    two = {
+        "items": [{"ref": 2, "selector": "b2"} | link, {"ref": 9, "selector": "c"} | link]
+    }
+    snapshot.save_refs(state, "T1", "https://e.test/", one)
+    snapshot.save_refs(state, "T1", "https://e.test/", two, merge=True)
+    assert state["refs"] == {"1": "a", "2": "b2", "9": "c"}
+    assert state["ref_names"].keys() == state["refs"].keys()
+    snapshot.save_refs(state, "T1", "https://e.test/", {"items": []}, merge=True)
+    assert state["refs"] == {"1": "a", "2": "b2", "9": "c"}
+    snapshot.save_refs(state, "T2", "https://e.test/", two, merge=True)
+    assert state["refs"] == {"2": "b2", "9": "c"}
+    snapshot.save_refs(state, "T2", "https://e.test/b", one, merge=True)
+    assert state["refs"] == {"1": "a", "2": "b"}
+    snapshot.save_refs(state, "T2", "https://e.test/b", two)
+    assert state["refs"] == {"2": "b2", "9": "c"}
+
+
+def test_take_cuts_a_long_query_out_of_href():
+    query = "aid=304142&label=" + "x" * 80
+    link = {"ref": 1, "role": "link", "name": "Deals", "selector": "a"}
+    rows = [
+        {**link, "href": f"https://e.test/deals/index.html?{query}#top"},
+        {**link, "href": "https://e.test/search?q=lisbon&page=2"},
+        {**link, "href": "https://e.test/a/b#section"},
+    ]
+
+    class Walked(Page):
+        async def evaluate(self, expression, *args, **kwargs):
+            return {"items": rows, "total": 3}
+
+    items = asyncio.run(snapshot.take(Walked()))["items"]
+    assert [item["href"] for item in items] == [
+        "https://e.test/deals/index.html?aid=304142&label=xxxxxxxxxxxxxxxxxxxxxxx...",
+        "https://e.test/search?q=lisbon&page=2",
+        "https://e.test/a/b#section",
     ]

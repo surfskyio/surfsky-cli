@@ -61,8 +61,8 @@ A session bills per minute, idle time included, until `session stop` or
 `-s` appends a snapshot, one row per visible element, like
 `[@2] link "More information..." href=https://www.iana.org/domains/example`.
 `surfsky snapshot` prints one on its own. A target is `@N`, a CSS selector or
-`text=words`. Each snapshot replaces the refs: take a new one after navigation
-or a tab switch.
+`text=words`. `snapshot` keeps the refs of the same tab and URL; a new URL, a
+tab switch, or `-s` on an action replaces them.
 
 `session start` and `scrape` take `--proxy premium|shared|URL`,
 `--proxy-type residential|mobile`, `--country`, `--region`, `--city` and
@@ -88,6 +88,7 @@ on failure, both on stdout. Text errors go to stderr. `-o FILE` saves the output
 | 5    | timeout                                      |
 | 6    | target not found or stale `@N`               |
 | 7    | quota, plan limit, rate limit, empty balance |
+| 8    | the connection dropped during an action      |
 
 ## Agent skill
 

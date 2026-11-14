@@ -20,6 +20,7 @@ from ..out import (
     set_json,
     timeout_option,
 )
+from ..text_input import enter
 from .page import act, navigation, result_text, snapshot_option, where
 
 ELEMENT_TIMEOUT = 10.0
@@ -69,7 +70,7 @@ def click_cmd(
                 timeout=timeout,
             )
 
-        return await navigation(a, do, want_snapshot=want_snapshot)
+        return await navigation(a, do, want_snapshot=want_snapshot, wait=True)
 
     act(settings, action, text=result_text, **out)
 
@@ -77,18 +78,21 @@ def click_cmd(
 @click.command()
 @click.argument("target")
 @click.argument("text")
+@snapshot_option
 @output_options
 @pass_settings
-def fill(settings: Settings, target: str, text: str, **out: Any) -> None:
+def fill(
+    settings: Settings, target: str, text: str, want_snapshot: bool, **out: Any
+) -> None:
     """Replace an input's text: select all, then type TEXT."""
 
     async def action(a: session.Attached) -> Any:
         selector = await session.resolve_target(a, target)
 
         async def do() -> None:
-            await a.page.fill(selector, text)
+            await enter(a.page, selector, text, target, replace=True)
 
-        return await navigation(a, do)
+        return await navigation(a, do, want_snapshot=want_snapshot)
 
     act(settings, action, text=result_text, **out)
 
@@ -96,19 +100,21 @@ def fill(settings: Settings, target: str, text: str, **out: Any) -> None:
 @click.command("type")
 @click.argument("target")
 @click.argument("text")
+@snapshot_option
 @output_options
 @pass_settings
-def type_cmd(settings: Settings, target: str, text: str, **out: Any) -> None:
+def type_cmd(
+    settings: Settings, target: str, text: str, want_snapshot: bool, **out: Any
+) -> None:
     """Click TARGET, then type TEXT after its current text. TARGET @focused skips the click."""
 
     async def action(a: session.Attached) -> Any:
         async def do() -> None:
-            if target == session.FOCUSED:
-                await a.page.keyboard.type(text)
-            else:
-                await a.page.type(await session.resolve_target(a, target), text)
+            focused = target == session.FOCUSED
+            selector = None if focused else await session.resolve_target(a, target)
+            await enter(a.page, selector, text, target)
 
-        return await navigation(a, do)
+        return await navigation(a, do, want_snapshot=want_snapshot)
 
     act(settings, action, text=result_text, **out)
 
@@ -128,7 +134,7 @@ def press(
         async def do() -> None:
             await a.page.keyboard.press(key, modifiers=modifiers_of(modifiers))
 
-        return await navigation(a, do, want_snapshot=want_snapshot)
+        return await navigation(a, do, want_snapshot=want_snapshot, wait=True)
 
     act(settings, action, text=result_text, **out)
 
@@ -168,9 +174,12 @@ def select(
 @click.command()
 @click.argument("target")
 @timeout_option(ELEMENT_TIMEOUT)
+@snapshot_option
 @output_options
 @pass_settings
-def hover(settings: Settings, target: str, timeout: float, **out: Any) -> None:
+def hover(
+    settings: Settings, target: str, timeout: float, want_snapshot: bool, **out: Any
+) -> None:
     """Move the mouse over TARGET."""
 
     async def action(a: session.Attached) -> Any:
@@ -179,7 +188,7 @@ def hover(settings: Settings, target: str, timeout: float, **out: Any) -> None:
         async def do() -> None:
             await a.page.hover(selector, timeout=timeout)
 
-        return await navigation(a, do)
+        return await navigation(a, do, want_snapshot=want_snapshot)
 
     act(settings, action, text=result_text, **out)
 
@@ -196,6 +205,7 @@ def hover(settings: Settings, target: str, timeout: float, **out: Any) -> None:
 )
 @click.option("--top", is_flag=True, help="Scroll to the top.")
 @click.option("--bottom", is_flag=True, help="Scroll to the bottom.")
+@snapshot_option
 @output_options
 @pass_settings
 def scroll(
@@ -205,6 +215,7 @@ def scroll(
     to_target: str | None,
     top: bool,
     bottom: bool,
+    want_snapshot: bool,
     **out: Any,
 ) -> None:
     """Scroll down most of a screen by default, or use --y PIXELS or --to TARGET."""
@@ -227,7 +238,7 @@ def scroll(
                     delta_y = round(height * random.uniform(0.6, 0.9))
                 await a.page.scroll(delta_x=x, delta_y=delta_y)
 
-        return await navigation(a, do)
+        return await navigation(a, do, want_snapshot=want_snapshot)
 
     act(settings, action, text=result_text, **out)
 
@@ -281,7 +292,7 @@ def mouse_click(
         async def do() -> None:
             await a.page.mouse.click(x, y, button=button)
 
-        return await navigation(a, do, want_snapshot=want_snapshot)
+        return await navigation(a, do, want_snapshot=want_snapshot, wait=True)
 
     act(settings, action, text=result_text, **out)
 
@@ -361,7 +372,7 @@ def wait(
             await anyio.sleep(sleep)
         return await where(a.page)
 
-    act(settings, action, **out)
+    act(settings, action, readonly=True, **out)
 
 
 @click.group()
@@ -374,7 +385,7 @@ def get() -> None:
 @pass_settings
 def get_url(settings: Settings, **out: Any) -> None:
     """The active tab's URL."""
-    act(settings, lambda a: a.page.url(), text=str, **out)
+    act(settings, lambda a: a.page.url(), text=str, readonly=True, **out)
 
 
 @get.command("title")
@@ -382,7 +393,7 @@ def get_url(settings: Settings, **out: Any) -> None:
 @pass_settings
 def get_title(settings: Settings, **out: Any) -> None:
     """The active tab's title."""
-    act(settings, lambda a: a.page.title(), text=str, **out)
+    act(settings, lambda a: a.page.title(), text=str, readonly=True, **out)
 
 
 @get.command("text")
@@ -399,7 +410,7 @@ def get_text(settings: Settings, target: str | None, **out: Any) -> None:
             raise not_found(a, target or "body")
         return text
 
-    act(settings, action, text=str, **out)
+    act(settings, action, text=str, readonly=True, **out)
 
 
 @get.command("html")
@@ -417,7 +428,7 @@ def get_html(settings: Settings, target: str | None, **out: Any) -> None:
             raise not_found(a, target)
         return html
 
-    act(settings, action, text=str, **out)
+    act(settings, action, text=str, readonly=True, **out)
 
 
 @get.command("attr")
@@ -434,7 +445,7 @@ def get_attr(settings: Settings, target: str, name: str, **out: Any) -> None:
             raise not_found(a, target)
         return await a.page.get_attribute(selector, name)
 
-    act(settings, action, text=lambda value: value or "", **out)
+    act(settings, action, text=lambda value: value or "", readonly=True, **out)
 
 
 @get.command("value")
@@ -452,7 +463,13 @@ def get_value(settings: Settings, target: str, **out: Any) -> None:
             "s => document.querySelector(s)?.value ?? null", selector
         )
 
-    act(settings, action, text=lambda value: "" if value is None else str(value), **out)
+    act(
+        settings,
+        action,
+        text=lambda value: "" if value is None else str(value),
+        readonly=True,
+        **out,
+    )
 
 
 @get.command("count")
@@ -465,7 +482,7 @@ def get_count(settings: Settings, target: str, **out: Any) -> None:
     async def action(a: session.Attached) -> Any:
         return await a.page.count(await session.resolve_target(a, target))
 
-    act(settings, action, text=str, **out)
+    act(settings, action, text=str, readonly=True, **out)
 
 
 @click.group("is")
@@ -480,7 +497,13 @@ def check(settings: Settings, target: str, key: str, out: dict[str, Any]) -> Non
             return {key: await a.page.is_visible(selector)}
         return {key: await a.page.count(selector) > 0}
 
-    act(settings, action, text=lambda result: str(result[key]).lower(), **out)
+    act(
+        settings,
+        action,
+        text=lambda result: str(result[key]).lower(),
+        readonly=True,
+        **out,
+    )
 
 
 @is_.command("visible")
@@ -522,7 +545,7 @@ def screenshot_cmd(
     """Save a PNG of the active tab and print its path."""
 
     async def go() -> bytes:
-        async with session.attached(settings) as a:
+        async with session.attached(settings, readonly=True) as a:
             await a.page.bring_to_front()  # a hidden tab's screenshot hangs
             clip = await session.resolve_target(a, selector) if selector else None
             return await a.page.screenshot(selector=clip, full_page=full_page)
@@ -543,7 +566,7 @@ def cookies() -> None:
 @pass_settings
 def cookies_get(settings: Settings, **out: Any) -> None:
     """All cookies, as JSON."""
-    act(settings, lambda a: a.page.cookies(), text=scalar, **out)
+    act(settings, lambda a: a.page.cookies(), text=scalar, readonly=True, **out)
 
 
 @cookies.command("set")

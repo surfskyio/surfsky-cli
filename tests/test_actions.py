@@ -1,5 +1,8 @@
 import json
 
+import pytest
+from surfsky import CDPError
+
 from surfsky_cli import config
 
 FOUND = {
@@ -265,3 +268,153 @@ def test_eval_and_cdp(fake, invoke):
     assert config.load_state("S1")["refs"] == {
         "1": "a.first"
     }  # nothing above touched refs
+
+
+ACTIONS = (["click", "#go"], ["press", "Enter"], ["mouse", "click", "1", "2"])
+
+
+@pytest.mark.parametrize("command", ACTIONS)
+def test_an_action_waits_for_a_navigation_that_commits_late(fake, invoke, command):
+    fake.page.navigates = ("https://e.test/next", 0.5)  # a slow form submit
+    data = json.loads(invoke(*command, "--json").stdout)
+    assert data["navigated"] is True and data["url"] == "https://e.test/next"
+    assert fake.page.called("wait_for_load_state")[0][1:] == (
+        ("load",),
+        {"timeout": 10.0},
+    )
+
+
+@pytest.mark.parametrize("command", ACTIONS)
+def test_an_action_that_starts_no_navigation_does_not_wait_for_load(
+    fake, invoke, command
+):
+    # a page still loading would hold wait_for_load_state for its whole timeout
+    data = json.loads(invoke(*command, "--json").stdout)
+    assert data["navigated"] is False
+    assert not fake.page.called("wait_for_load_state")
+
+
+def test_a_click_that_starts_a_download_does_not_wait_for_load(fake, invoke):
+    fake.page.navigates = (None, 0.05)
+    data = json.loads(invoke("click", "#file", "--json").stdout)
+    assert data["navigated"] is False
+    assert not fake.page.called("wait_for_load_state")
+
+
+def test_fill_does_not_wait_for_load(fake, invoke):
+    assert invoke("fill", "@1", "hello").exit_code == 0
+    assert not fake.page.called("wait_for_load_state")
+
+
+@pytest.fixture
+def no_refocus_wait(monkeypatch):
+    monkeypatch.setattr("surfsky_cli.text_input.REFOCUS_WAIT", 0)
+
+
+def test_typing_is_retried_only_when_nothing_was_typed(fake, invoke, no_refocus_wait):
+    page = fake.page
+    page.focus_misses = 1  # a dialog opened under the click: no key was sent
+    done = invoke("fill", "#q", "Lisbon")
+    assert done.exit_code == 0 and "focus" not in done.stderr
+    assert len(page.called("fill")) == 2 and page.field["value"] == "Lisbon"
+    # the keys were sent and the page moved focus: reported, never typed again
+    page.calls.clear()
+    page.focus_steals = 1
+    failed = invoke("fill", "#q", "Porto")
+    assert failed.exit_code == 1 and "moved focus" in failed.stderr
+    assert len(page.called("fill")) == 1
+    # the error names the agent's target, not the selector the page controls
+    for command in ("fill", "type"):
+        page.focus_misses = 2
+        failed = invoke(command, "@1", "Porto")
+        assert failed.exit_code == 1 and "@1 did not take focus" in failed.stderr
+        assert "a.first" not in failed.stderr
+    assert len(page.called("type")) == 2
+
+
+def test_typing_never_sends_the_text_twice(fake, invoke, no_refocus_wait):
+    page = fake.page
+
+    def act(command, text="Lisbon"):
+        page.calls.clear()
+        done = invoke(command, "#q", text)
+        assert done.exit_code == 0, done.stderr
+        assert len(page.called(command)) == 1
+        assert text not in done.stdout  # the field's value stays out of the output
+
+    # a grid cell, a canvas, a div with tabindex: focusable, with no value to read
+    page.field = {"editable": False, "value": None, "focused": True}
+    act("type")
+    # a chat box or a tag input that clears itself
+    page.field = {"editable": True, "value": "", "focused": True}
+    page.typed = lambda text, replace=False: None
+    act("type")
+    act("fill")
+    # a masked field shows the text in another form
+    page.typed = lambda text, replace=False: page.field.update(value="+1 (555)")
+    act("fill", "1555")
+    del page.typed
+    # the same value again
+    page.field = {"editable": True, "value": "Lisbon", "focused": True}
+    act("fill")
+    # typing that makes the page navigate leaves no field to read
+    page.check_error = CDPError("Cannot find context with specified id")
+    act("type", "123456")
+    page.check_error = None
+    # a field the page replaced, or one inside a shadow root
+    page.field = None
+    act("type")
+
+
+def test_fill_with_empty_text_clears_the_field(fake, invoke):
+    fake.page.field["value"] = "old"
+    assert invoke("fill", "#q", "").exit_code == 0
+    assert fake.page.called("fill")[0][1] == ("#q", "") and fake.page.field["value"] == ""
+
+
+def test_type_into_the_focused_element_needs_one_that_takes_text(fake, invoke):
+    page = fake.page
+    page.focus_steals = 1
+    assert "moved focus" in invoke("type", "@focused", "Lisbon").stderr
+    page.field = {"editable": False, "value": None, "focused": True}  # a button
+    page.keyboard.calls.clear()
+    failed = invoke("type", "@focused", "Lisbon")
+    assert failed.exit_code == 1 and "no editable element has focus" in failed.stderr
+    assert not page.keyboard.called("type")
+    # a frame takes the keys and shows no value
+    page.field = {"editable": True, "value": None, "focused": True}
+    assert invoke("type", "@focused", "Lisbon").exit_code == 0
+
+
+@pytest.mark.parametrize(
+    "command",
+    [("fill", "#q", "Lisbon"), ("type", "#q", "Lisbon"), ("hover", "#q"), ("scroll",)],
+)
+def test_every_action_can_attach_a_limited_snapshot(fake, invoke, command):
+    fake.page.evaluate_result = FOUND
+    result = invoke(*command, "-s", "-i", "--limit", "5")
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == '[@3] link "Sign in"'
+    walk = [
+        call for call in fake.page.called("evaluate") if call[1][1:] == (5, True, None)
+    ]
+    assert len(walk) == 1
+    assert config.load_state("S1")["refs"] == {"3": "a.si"}
+    data = json.loads(invoke(*command, "-s", "--json").stdout)
+    assert data["snapshot"]["items"][0]["ref"] == 3
+
+
+def test_goto_snapshot_takes_the_snapshot_options(fake, invoke):
+    fake.page.evaluate_result = FOUND
+    assert invoke("goto", "e.test/b", "-s", "-i", "--limit", "7").exit_code == 0
+    assert fake.page.called("evaluate")[-1][1][1:] == (7, True, None)
+
+
+@pytest.mark.parametrize("option", [["-i"], ["--limit", "5"]])
+@pytest.mark.parametrize("command", [["click", "#go"], ["goto", "e.test"], ["scroll"]])
+def test_snapshot_options_without_the_snapshot_are_a_usage_error(
+    fake, invoke, command, option
+):
+    result = invoke(*command, *option)
+    assert result.exit_code == 2 and "-s" in result.stderr
+    assert not fake.page.calls

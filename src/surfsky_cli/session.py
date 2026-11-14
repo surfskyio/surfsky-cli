@@ -25,7 +25,14 @@ from surfsky.browser.browser import normalize_blocked
 
 from . import config, snapshot
 from .config import Settings
-from .out import NoSession, NotFound, SessionGone, StaleRef
+from .out import (
+    ConnectionFailed,
+    NoSession,
+    NotFound,
+    OutcomeUnknown,
+    SessionGone,
+    StaleRef,
+)
 
 POLL = 0.1
 TAB_WAIT = 2.0  # pages attach asynchronously after connect
@@ -194,9 +201,9 @@ async def clear_dialog(page: Any, policy: str) -> None:
 
 @asynccontextmanager
 async def attached(
-    settings: Settings, uuid: str | None = None
+    settings: Settings, uuid: str | None = None, *, readonly: bool = False
 ) -> AsyncIterator[Attached]:
-    """Reconnect to the session for the length of one command."""
+    """Reconnect to the session for one command; `readonly` marks one safe to repeat."""
     uuid = uuid or settings.session_id()
     if not uuid:
         raise NoSession(
@@ -225,6 +232,11 @@ async def attached(
         page = await pick_tab(browser, state.get("target_id"))
         await clear_dialog(page, policy)
         yield Attached(record, state, browser, page, dialogs)
+    except SurfskyError as exc:
+        if browser.connected:
+            raise
+        lost = ConnectionFailed if readonly else OutcomeUnknown
+        raise lost(f"connection to session {uuid} lost: {exc}") from exc
     finally:
         state["last_used"] = time.time()
         config.save_state(uuid, state)
@@ -302,4 +314,7 @@ async def resolve_target(a: Attached, target: str) -> str:
     if matches != 1:
         what = "is no longer on the page" if matches == 0 else f"now matches {matches} elements"
         raise StaleRef(f"{target} {what}")
+    seen = (a.state.get("ref_names") or {}).get(target[1:])
+    if seen and await snapshot.role_and_name(a.page, selector) != [seen]:
+        raise StaleRef(f"{target} changed since the snapshot")
     return selector

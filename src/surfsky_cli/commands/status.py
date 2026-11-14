@@ -68,7 +68,7 @@ async def session_status(settings: Settings) -> dict[str, Any]:
         "idle_s": int(time.time() - last),
     }
     try:
-        async with session.attached(settings) as a:
+        async with session.attached(settings, readonly=True) as a:
             info["alive"] = True
             info["url"] = await a.page.url()
             info["title"] = await a.page.title()

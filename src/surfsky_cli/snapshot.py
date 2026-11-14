@@ -2,6 +2,7 @@ import contextlib
 import json
 import re
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import anyio
 from surfsky import Page, SurfskyError
@@ -10,9 +11,10 @@ from surfsky import Page, SurfskyError
 # ponytail: accessible names are approximated here; switch to
 # Accessibility.getFullAXTree if agents misidentify elements.
 SCRIPT = r"""(limit, interactive, find) => {
-  const selector = 'a[href], button, input, select, textarea, summary, [role], '
-    + '[contenteditable=""], [contenteditable="true"]'
-    + (interactive ? '' : ', h1, h2, h3, h4, h5, h6');
+  const INTERACTIVE = 'a[href], button, input, select, textarea, summary, [role], '
+    + '[contenteditable=""], [contenteditable="true"]';
+  const selector = INTERACTIVE + ', h1, h2, h3, h4, h5, h6';
+  const only = find && find.selector;  // one element, for a check of its ref
   const INPUT_ROLES = {checkbox: 'checkbox', radio: 'radio', submit: 'button', button: 'button',
     reset: 'button', image: 'button', range: 'slider', file: 'file', search: 'searchbox'};
   const roleOf = el => {
@@ -62,18 +64,19 @@ SCRIPT = r"""(limit, interactive, find) => {
     const style = getComputedStyle(el);
     return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
   };
-  const needles = (find || '').toLowerCase().split('|').map(s => s.trim()).filter(Boolean);
+  const needles = (only ? '' : find || '').toLowerCase().split('|').map(s => s.trim()).filter(Boolean);
   const matches = item => {
     const text = [item.role, item.name, item.href || '', item.selector].join(' ').toLowerCase();
     return !needles.length || needles.some(needle => text.includes(needle));
   };
   const items = [];
   let ref = 0, total = 0;
-  for (const el of document.querySelectorAll(selector)) {
+  for (const el of document.querySelectorAll(only || selector)) {
     if ((el.tagName === 'INPUT' && el.type === 'hidden') || !visible(el)) continue;
     const roleAttr = el.getAttribute('role');
     if (roleAttr === 'presentation' || roleAttr === 'none') continue;
-    ref++;  // Keep numbering stable when filtering with `find`.
+    ref++;  // before any filter: a number means one element whatever the filter
+    if (interactive && !el.matches(INTERACTIVE)) continue;
     const role = roleOf(el);
     const item = {ref, role, name: nameOf(el), selector: cssPath(el)};
     if (/^H[1-6]$/.test(el.tagName)) item.level = Number(el.tagName[1]);
@@ -83,7 +86,7 @@ SCRIPT = r"""(limit, interactive, find) => {
       && !['submit', 'button', 'reset', 'checkbox', 'radio'].includes(el.type);
     if (field) {
       if (el.tagName === 'INPUT') item.type = el.type;
-      if (el.value) item.value = String(el.value).slice(0, 100);
+      if (el.value && el.type !== 'password') item.value = String(el.value).slice(0, 100);
     }
     if (role === 'checkbox' || role === 'radio') item.checked = !!el.checked;
     if (el.tagName === 'SELECT') item.options = Array.from(el.options).slice(0, 20).map(o => o.value);
@@ -93,6 +96,7 @@ SCRIPT = r"""(limit, interactive, find) => {
     if (items.length < limit) items.push(item);
   }
   const unreachable = [];
+  if (only) return {items, total, unreachable};
   for (const frame of document.querySelectorAll('iframe')) {
     if (visible(frame)) unreachable.push({kind: 'iframe', src: frame.src || '', selector: cssPath(frame)});
   }
@@ -102,19 +106,53 @@ SCRIPT = r"""(limit, interactive, find) => {
   return {items, total, unreachable};
 }"""
 
+DEFAULT_LIMIT = 500
 KEYS = ("href", "type", "input_name", "value", "checked", "options", "disabled")
 
 
 async def take(
-    page: Page, *, limit: int = 500, interactive: bool = False, find: str | None = None
+    page: Page,
+    *,
+    limit: int = DEFAULT_LIMIT,
+    interactive: bool = False,
+    find: str | None = None,
 ) -> dict[str, Any]:
-    return await page.evaluate(SCRIPT, limit, interactive, find)
+    data = await page.evaluate(SCRIPT, limit, interactive, find)
+    for item in data["items"]:
+        base, mark, query = item.get("href", "").partition("?")
+        if len(query) > 40:
+            item["href"] = f"{base}{mark}{query[:40]}..."
+    return data
+
+
+async def role_and_name(page: Page, selector: str) -> list[list[str]]:
+    """Role and name of what `selector` now leads to, read without walking the page."""
+    data = await page.evaluate(SCRIPT, 1, False, {"selector": selector})
+    return [
+        [item["role"], item.get("name", "")]
+        for item in data["items"]
+        if item["selector"] == selector
+    ]
 
 
 def save_refs(
-    state: dict[str, Any], target_id: str, url: str, data: dict[str, Any]
+    state: dict[str, Any],
+    target_id: str,
+    url: str,
+    data: dict[str, Any],
+    *,
+    merge: bool = False,
 ) -> None:
-    state["refs"] = {str(item["ref"]): item["selector"] for item in data["items"]}
+    """Replace the saved refs; `merge` keeps those of the same tab and URL."""
+    same_page = (state.get("refs_target_id"), state.get("refs_url")) == (target_id, url)
+    kept = state.get("refs") if merge and same_page else None
+    names = state.get("ref_names") if kept else None
+    state["refs"] = (kept or {}) | {
+        str(item["ref"]): item["selector"] for item in data["items"]
+    }
+    state["ref_names"] = (names or {}) | {
+        str(item["ref"]): [item["role"], item.get("name", "")] for item in data["items"]
+    }
     state["refs_target_id"] = target_id
     state["refs_url"] = url
     state["unreachable"] = len(data.get("unreachable") or [])
@@ -157,19 +195,66 @@ def render(data: dict[str, Any]) -> str:
     return f"url: {data['url']}  title: {title}\n" + render_items(data)
 
 
+NAVIGATION_START_WAIT = 0.3  # an action's navigation starts within this, or not at all
+LOAD_WAIT = 10.0
+POLL = 0.05
+# per CDP connection: frame id -> what its newest navigation has reached
+_navigations: WeakKeyDictionary[Any, dict[str, set[str]]] = WeakKeyDictionary()
+
+
+def watch(page: Page) -> None:
+    """Record the page's navigations from here on; call before the action."""
+    cdp = page.cdp
+    if (frames := _navigations.get(cdp)) is None:
+        frames = _navigations[cdp] = {}
+
+        def started(event: dict[str, Any], session_id: str | None) -> None:
+            frames[event["frameId"]] = {"started"}
+
+        def committed(event: dict[str, Any], session_id: str | None) -> None:
+            frames.setdefault(event["frame"]["id"], set()).add("committed")
+
+        def stopped(event: dict[str, Any], session_id: str | None) -> None:
+            frames.setdefault(event["frameId"], set()).add("stopped")
+
+        cdp.on("Page.frameStartedLoading", started)
+        cdp.on("Page.frameNavigated", committed)
+        cdp.on("Page.frameStoppedLoading", stopped)
+    frames.pop(page.target_id, None)
+
+
 async def wait_for_load(page: Page) -> None:
-    """Wait for the page to load after an action, up to 10 s."""
-    # TODO: listen for Page.frameStartedLoading instead of sleeping
-    await anyio.sleep(0.3)
-    with contextlib.suppress(SurfskyError):
-        await page.wait_for_load_state("load", timeout=10.0)
+    """Wait up to 10 s for the navigation an action started; return early when none did."""
+    frames = _navigations.get(page.cdp)
+    if frames is None:
+        await anyio.sleep(NAVIGATION_START_WAIT)
+        with contextlib.suppress(SurfskyError):
+            await page.wait_for_load_state("load", timeout=LOAD_WAIT)
+        return
+
+    async def reached(*phases: str) -> None:
+        while frames.get(page.target_id, set()).isdisjoint(phases):
+            await anyio.sleep(POLL)
+
+    with anyio.move_on_after(NAVIGATION_START_WAIT) as start:
+        await reached("started")
+    if start.cancelled_caught:
+        return
+    with anyio.move_on_after(LOAD_WAIT):
+        await reached("committed", "stopped")
+        if "stopped" not in frames[page.target_id]:
+            with contextlib.suppress(SurfskyError):
+                await page.wait_for_load_state("load", timeout=LOAD_WAIT)
+    frames.pop(page.target_id, None)
 
 
-async def after_action(page: Page, *, limit: int = 500) -> dict[str, Any]:
+async def after_action(
+    page: Page, *, limit: int = DEFAULT_LIMIT, interactive: bool = False
+) -> dict[str, Any]:
     for _ in range(3):
         await wait_for_load(page)
         url = await page.url()
-        data = await take(page, limit=limit)
+        data = await take(page, limit=limit, interactive=interactive)
         if await page.url() == url:
             break
     else:

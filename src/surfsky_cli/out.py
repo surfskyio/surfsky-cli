@@ -33,6 +33,7 @@ EXIT_AUTH = 4
 EXIT_TIMEOUT = 5
 EXIT_NOT_FOUND = 6
 EXIT_QUOTA = 7
+EXIT_OUTCOME_UNKNOWN = 8
 RETRYABLE = frozenset({"timeout", "rate_limit", "plan_full", "network"})
 PLAN_LIMITS = frozenset(
     {
@@ -59,6 +60,14 @@ class NoSession(Hinted):
 
 class SessionGone(NoSession):
     """The cloud no longer has this session."""
+
+
+class ConnectionFailed(SurfskyError):
+    """The browser connection dropped during a read."""
+
+
+class OutcomeUnknown(SurfskyError):
+    """A command that changes the page was sent and no reply came."""
 
 
 class StaleRef(SurfskyError):
@@ -152,8 +161,15 @@ def classify(exc: BaseException) -> CliError:
             return CliError(message, code="insufficient_balance", exit_code=EXIT_QUOTA)
         case APIError() if exc.code in PLAN_LIMITS:
             return CliError(message, code="plan_limit", exit_code=EXIT_QUOTA)
-        case APIConnectionError():
+        case APIConnectionError() | ConnectionFailed():
             return CliError(message, code="network")
+        case OutcomeUnknown():
+            return CliError(
+                message,
+                code="outcome_unknown",
+                exit_code=EXIT_OUTCOME_UNKNOWN,
+                hint="the command may have run: check the page ('surfsky snapshot') before repeating it",
+            )
         case APIError():
             return CliError(message, code="api")
         case CDPError():

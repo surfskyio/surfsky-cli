@@ -105,8 +105,22 @@ Pass `--session <uuid>` (a unique prefix works) on every command; it is global
 and can go anywhere on the line. `SURFSKY_SESSION` is an alternative only within
 one shell: exported variables do not survive separate tool calls. Commands use
 the selected session's active tab. Inspect the page, act on an observed target,
-then wait for and check the expected result. HTTP 200 and `ok: true` can still
-describe a challenge page.
+then check the expected result.
+
+## Challenge pages
+
+`goto`, `back`, `forward` and `reload` get the page past challenge pages and solve
+nothing on any other page. `challenge` has the outcome; no field means none.
+`billed_usd` appears when a solve was charged. `--no-solve` solves nothing and bills
+nothing; the page can still pass by itself.
+
+- `solved`: check `url`. If the site moved elsewhere (a sign-in page), open the target URL again; if it returns there, try another proxy location.
+- `passed`: no solve was needed.
+- `not solved`: the challenge page remains. Do not loop: attempts can be billed. `reason`:
+  - `no_solver`: no solver on the account for this captcha, do not retry.
+  - `timeout`: not passed in time, `reload` once.
+  - `solve_failed`: the solve failed, `reload` once or change proxy.
+- `blocked`: the site refused this browser. Start a session with another `--os` or proxy.
 
 ## Proxy, location and fingerprint
 
@@ -123,27 +137,28 @@ surfsky proxy countries && surfsky proxy regions us && surfsky proxy cities us t
 surfsky proxy quota && surfsky proxy quota --shared
 ```
 
-- No `--proxy`: the account's default pool, premium when enabled, otherwise shared. There is no direct connection. `--country` alone targets that default pool.
+- No `--proxy`: the account's default pool, premium when enabled, otherwise shared. There is no direct connection. Without `--country` the exit country is arbitrary, and sites answer in its language and currency. `--country` alone targets that default pool.
 - `--proxy premium`: residential unless `--proxy-type mobile`. `--region` needs `--country`; `--city` needs `--region`. Take codes from `proxy countries|regions|cities`; narrower targeting leaves fewer peers.
 - `--proxy shared`: country only, IPs shared with other customers. Use for tests; run real jobs on premium or your own proxy. `proxy countries --shared` lists availability; `proxy quota` is premium traffic and `proxy quota --shared` the shared pool.
 - `--proxy <url>`: `http`, `https`, `socks5`, `ssh`, or `ss` URL with URL-encoded credentials. Targeting flags are a usage error here. Only SOCKS5 with UDP carries the browser's UDP traffic.
 - Fingerprint: `--os win|mac|android` (android for mobile sites), `--os-version 11`, `--arch x86|arm`. Timezone, language, and geolocation follow the proxy IP. A profile's OS is fixed at creation (`profile create` requires `--os`), so `--os` cannot go with `--profile`.
 - `session start` and `scrape` also take `--block image,font,media,stylesheet`, `--idle-timeout`, and `--extension <uuid>` (repeatable, max 5) after `surfsky extension upload ext.zip --name helper`. `--dialogs accept` is `session start` only; `scrape` dismisses dialogs.
-- CAPTCHA: `surfsky cdp Captcha.solve '{"type": "turnstile", "timeout": 50000}' --session <uuid>`; keep `timeout` (ms) under the 60 s limit on one `cdp` command. `Captcha.autoSolve` stops when the command exits, so automatic solving needs the SDK. See [CAPTCHA solving](https://docs.surfsky.io/captcha-solving).
+- CAPTCHA inside a page: `surfsky cdp Captcha.solve '{"type": "turnstile", "timeout": 50000}' --session <uuid>`; keep `timeout` (ms) under the 60 s limit on one `cdp` command. `Captcha.autoSolve` stops when the command exits, so automatic solving needs the SDK. See [CAPTCHA solving](https://docs.surfsky.io/captcha-solving).
 
 ## Targets
 
 - Targets: CSS selectors, `@N` from the latest snapshot, or `text=words` (first visible element whose name contains the text, case-insensitive).
-- Use actual snapshot refs: `surfsky click @12` or `surfsky fill @5 'search words'`. Each snapshot replaces saved refs; take a new one after navigation or a tab switch.
+- Use actual snapshot refs: `surfsky click @12` or `surfsky fill @5 'search words'`. `snapshot` keeps the refs of the same tab and URL, so `snapshot --find 'price|cart'` is safe for looking around. A new URL, a tab switch, or `-s` on an action replaces them.
 - On `stale_ref`, run `surfsky snapshot` and choose the target again. Use CSS to wait for new or removed elements; `@refs` and `text=words` must resolve before waiting.
 - Iframe and shadow-root contents are never in a snapshot, so a target inside one is invisible to `snapshot --find` and to `text=`.
 
 ## Interact and wait
 
 - `fill TARGET TEXT` replaces a field's value; `type TARGET TEXT` appends. `type @focused TEXT` skips the click; `press Enter` acts on the focused element.
+- `did not take focus`, `no editable element has focus` and `the page moved focus away while typing` mean the text did not arrive. Snapshot, close the dialog that took focus, then target the field again.
 - CLI mouse and keyboard commands use the SDK's Human input layer. Use them for input; avoid `eval 'element.click()'` or direct value assignment to imitate typing. No `Human.enable` call is needed.
 - Follow the visible form order and check each target. Avoid broad selectors that include hidden inputs. Wait for content; do not add random motion or delays to every action.
-- For dynamic pages, use `goto URL --wait-until domcontentloaded`, then `wait 'CSS' --timeout 30`. Use `wait '#spinner' --gone` for removal, `wait --url '/result'` for a URL change, or `wait --fn 'JS expression'`. `networkidle` may never occur on busy pages.
+- `click`, `press` and `mouse click` wait for a navigation they start. For content that arrives later, use `wait 'CSS' --timeout 30`, `wait '#spinner' --gone`, `wait --url '/result'`, or `wait --fn 'JS expression'`. `networkidle` may never occur on busy pages.
 - For a target missing from the snapshot, inspect `screenshot -o page.png` or `session devtools`. `mouse click X Y` uses viewport CSS pixels; recheck coordinates after scrolling or layout changes.
 - `eval` reads page data in an isolated context; `--main-world` accesses page globals. Raw `cdp METHOD 'JSON'` does not resolve `@refs`. Read the relevant docs before using it; `Human.*` calls go to the page, without `--browser`.
 
@@ -154,12 +169,9 @@ surfsky goto https://example.com/login -s --session <uuid>   # refs come from th
 surfsky fill @4 'user@example.com' --session <uuid>
 surfsky fill @5 "$PASSWORD" --session <uuid>                 # from the environment, not the command line
 surfsky select @7 --label 'United States' --session <uuid>
-surfsky click @8 --session <uuid>                            # submit
-surfsky wait --url '/dashboard' --timeout 30 --session <uuid>
+surfsky click @8 -s -i --session <uuid>                      # submit; waits for the navigation, new refs
 surfsky is visible 'text=Sign out' --session <uuid>          # verify; a 200 is not a success
 ```
-
-The submit navigates, so those refs are now stale: snapshot again before the next click.
 
 ## Patterns
 
@@ -212,11 +224,12 @@ surfsky tab switch 0 --session <uuid>                     # and snapshot again
 
 ## Read the results
 
-- Actions return `url`, `title`, and `navigated` (whether the URL changed); navigation and action commands take `-s` to append a snapshot.
-- `snapshot` rows: `[@ref] role "name" href=... value=...`. `[--] iframe ...` rows are content the CLI cannot reach.
+- Actions return `url`, `title`, and `navigated` (whether the URL changed). `goto`, `back`, `forward`, `reload`, `click`, `press`, `mouse click`, `fill`, `type`, `select`, `hover` and `scroll` take `-s` to append a snapshot; `-s -i` lists only elements you can act on, `--limit N` caps the rows.
+- `snapshot` rows: `[@ref] role "name" href=... value=...`. A long `href` query is cut and ends in `...`; `get attr @N href` returns the full value. A password field has no `value`. `[--] iframe ...` rows are content the CLI cannot reach.
 - Read without a snapshot with `get`: `text`, `html`, `attr`, `value`, `count`.
 - JSON success includes `ok: true`; errors include `ok: false` and an `error` object with `code`, `message`, `hint`, and `retryable`. JSON errors go to stdout; text errors go to stderr.
-- Exit codes: 0 success, 1 error, 2 usage, 3 missing or expired session, 4 authentication, 5 timeout, 6 not found or stale ref, 7 quota or plan limit. Read the error code and hint before retrying.
+- Exit codes: 0 success, 1 error, 2 usage, 3 missing or expired session, 4 authentication, 5 timeout, 6 not found or stale ref, 7 quota or plan limit, 8 `outcome_unknown`. Read the error code and hint before retrying.
+- `outcome_unknown`: the connection dropped during an action, so it may have run. Not retryable: check the page with `snapshot` before repeating it.
 - `is visible|present <target>` returns `true` or `false`; both exit 0. Connection and target-resolution errors still fail.
 - For long pages, save with `-o page.md` and read the part you need instead of printing everything.
 - Scrape screenshots in JSON are base64. To save one directly, use `scrape URL -f screenshot -o page.png` in text mode (unset `SURFSKY_JSON`).
@@ -234,7 +247,7 @@ surfsky tab switch 0 --session <uuid>                     # and snapshot again
 
 ## Failures and parallel work
 
-- For a blocked page or timeout, inspect one session with `snapshot`, `get url`, or `screenshot`; then read Troubleshooting. Check the expected content before repeating a click or submission whose result is uncertain.
+- For a blocked page or timeout, inspect one session with `snapshot`, `get url`, or `screenshot`; then read Troubleshooting.
 - A timed-out start may have created a browser. Check `session list` and your recorded IDs before starting another. Retry temporary failures with bounded backoff; report the error when repeated attempts fail.
 - For independent jobs, use separate sessions and explicit `--session ID` values. Run commands sequentially within each session: active tabs, refs, cookies, and local state are shared. Starting the same persistent profile can return the same browser.
 - Check `status --json` before scaling, but treat `available` as a snapshot, not a reserved slot. Queue excess work. On exit code 7, read Limits: waiting can resolve request limits; freeing an owned browser can resolve slot limits; traffic quota requires allowance.

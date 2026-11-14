@@ -1,11 +1,23 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 import click
 import pytest
-from surfsky import NotFoundError, PremiumProxy, ProxyGeo, ServerError, SharedProxy
+from click.testing import CliRunner
+from surfsky import (
+    BrowserTimeoutError,
+    CDPError,
+    NotFoundError,
+    PremiumProxy,
+    ProxyGeo,
+    ServerError,
+    SharedProxy,
+)
 
+import conftest
 from surfsky_cli import config, out, session
+from surfsky_cli.main import cli
 
 RECORD = {
     "internal_uuid": "S1",
@@ -268,9 +280,114 @@ def test_attached_reports_gone_session(monkeypatch):
 
     config.save_session(dict(RECORD))
     monkeypatch.setattr(config.Settings, "client", lambda self: FakeClient(active=["S1"]))
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="connection refused"):
         asyncio.run(use())
     assert config.load_session("S1") is not None
+
+
+class DroppingBrowser(conftest.FakePage):
+    """Connects, then the socket closes while the SDK call named by `drop` awaits its reply."""
+
+    drop = ""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(target_id="T2")
+        self.pages = [self]
+        self.connected = True
+        setattr(self, self.drop, self.dropped)
+
+    async def dropped(self, *args, **kwargs):
+        self.connected = False
+        raise CDPError("CDP connection closed")
+
+
+def run_dropping(monkeypatch, drop, *args):
+    monkeypatch.setattr(DroppingBrowser, "drop", drop)
+    monkeypatch.setattr(session, "Browser", DroppingBrowser)
+    result = CliRunner().invoke(cli, [*args, "--json"])
+    return result.exit_code, json.loads(result.stdout)["error"]
+
+
+@pytest.mark.parametrize(
+    ("drop", "args"),
+    [
+        ("click", ["click", "#go"]),
+        ("fill", ["fill", "#q", "x"]),
+        ("goto", ["goto", "e.test"]),
+        ("evaluate", ["eval", "1"]),
+        ("select_option", ["select", "#s", "a"]),
+        ("clear_cookies", ["cookies", "clear"]),
+    ],
+)
+def test_drop_after_a_mutating_command_is_outcome_unknown(monkeypatch, drop, args):
+    exit_code, error = run_dropping(monkeypatch, drop, *args)
+    assert (exit_code, error["code"], error["retryable"]) == (8, "outcome_unknown", False)
+    assert "before repeating" in error["hint"]
+
+
+@pytest.mark.parametrize(
+    ("drop", "args"),
+    [
+        ("title", ["get", "title"]),
+        ("evaluate", ["snapshot"]),
+        ("count", ["is", "present", "#go"]),
+        ("screenshot", ["screenshot"]),
+        ("title", ["tab", "list"]),
+        ("cookies", ["cookies", "get"]),
+        ("wait_for_selector", ["wait", "#go"]),
+        ("content", ["scrape"]),
+    ],
+)
+def test_drop_during_a_read_is_network(monkeypatch, drop, args):
+    exit_code, error = run_dropping(monkeypatch, drop, *args)
+    assert (exit_code, error["code"], error["retryable"]) == (1, "network", True)
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected"),
+    [
+        (BrowserTimeoutError("could not connect within 30s"), (5, "timeout", True)),
+        (OSError("server rejected WebSocket connection: HTTP 401"), (1, "error", False)),
+    ],
+)
+@pytest.mark.parametrize("args", [["click", "#go"], ["get", "title"]])
+def test_a_failed_connect_keeps_its_own_code(monkeypatch, raised, expected, args):
+    class ConnectFails(DroppingBrowser):
+        async def connect(self):
+            raise raised
+
+    monkeypatch.setattr(session, "Browser", ConnectFails)
+    monkeypatch.setattr(config.Settings, "client", lambda self: FakeClient(active=["S1"]))
+    result = CliRunner().invoke(cli, [*args, "--json"])
+    error = json.loads(result.stdout)["error"]
+    assert (result.exit_code, error["code"], error["retryable"]) == expected
+
+
+def test_a_drop_while_resolving_the_target_is_outcome_unknown(monkeypatch):
+    config.save_state("S1", {**STATE, "refs_target_id": "T2"})
+    exit_code, error = run_dropping(monkeypatch, "count", "click", "@1")
+    assert (exit_code, error["code"]) == (8, "outcome_unknown")
+
+
+def test_a_drop_during_the_challenge_pass_is_reported_by_the_next_call(monkeypatch):
+    class Drops(DroppingBrowser):
+        drop = "pass_challenge"
+        title = DroppingBrowser.dropped
+
+    monkeypatch.setattr(session, "Browser", Drops)
+    result = CliRunner().invoke(cli, ["goto", "e.test", "--json"])
+    assert json.loads(result.stdout)["error"]["code"] == "outcome_unknown"
+
+
+def test_error_with_the_connection_up_keeps_its_code(monkeypatch):
+    class Fails(DroppingBrowser):
+        async def dropped(self, *args, **kwargs):
+            raise CDPError("Human.click '#go': bad")
+
+    monkeypatch.setattr(Fails, "drop", "click")
+    monkeypatch.setattr(session, "Browser", Fails)
+    result = CliRunner().invoke(cli, ["click", "#go", "--json"])
+    assert json.loads(result.stdout)["error"]["code"] == "browser"
 
 
 def test_attached_without_session(monkeypatch):

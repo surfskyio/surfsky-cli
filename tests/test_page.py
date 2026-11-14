@@ -51,11 +51,6 @@ def test_goto_with_snapshot_saves_refs(fake, invoke):
         lines[0] == "url: https://e.test/b"
         and lines[-1] == '[@1] link "x" href=https://e.test/x'
     )
-    assert fake.page.called("wait_for_load_state")[0] == (
-        "wait_for_load_state",
-        ("load",),
-        {"timeout": 10.0},
-    )
     state = config.load_state("S1")
     assert state["refs"] == {"1": "a.x"} and state["refs_url"] == "https://e.test/b"
     data = json.loads(invoke("goto", "https://e.test/b", "--snapshot", "--json").stdout)
@@ -63,9 +58,9 @@ def test_goto_with_snapshot_saves_refs(fake, invoke):
 
 
 def test_goto_snapshot_reports_settled_url(fake, invoke):
-    """--snapshot settles (wait_for_load_state) before url/navigated are read."""
+    """--snapshot waits for a redirect the page starts before url/navigated are read."""
     fake.page.evaluate_result = SNAP
-    fake.page.url_after_load = "https://e.test/after"
+    fake.page.navigates = ("https://e.test/after", 0.05)
     result = invoke("goto", "https://e.test/b", "-s")
     assert result.exit_code == 0, result.stderr
     lines = result.stdout.splitlines()
@@ -150,3 +145,55 @@ def test_tabs(fake, invoke):
     )
     assert config.load_state("S1")["target_id"] is None
     assert invoke("tab", "switch", "9").exit_code == 1
+
+
+GO = {"ref": 7, "role": "button", "name": "Go", "selector": "#go"}
+
+
+def test_refs_survive_a_filtered_snapshot_of_the_same_page(fake, invoke):
+    fake.page.evaluate_result = {"items": [SNAP["items"][0], GO], "total": 2}
+    assert invoke("snapshot").exit_code == 0
+    fake.page.evaluate_result = {"items": [GO], "total": 1}
+    assert invoke("snapshot", "--find", "go").exit_code == 0
+    fake.page.evaluate_result = {"items": [], "total": 0}
+    assert invoke("snapshot", "--find", "nothing").exit_code == 0
+    fake.page.evaluate_result = {"items": [SNAP["items"][0], GO], "total": 2}
+    for ref, css in (("@1", "a.x"), ("@7", "#go")):
+        result = invoke("click", ref)
+        assert result.exit_code == 0, result.stderr
+        assert fake.page.called("click")[-1][1] == (css,)
+
+
+def test_snapshot_of_another_url_or_tab_replaces_refs(fake, invoke):
+    fake.page.evaluate_result = {"items": [GO], "total": 1}
+    fake.page._url = "https://e.test/other"
+    assert invoke("snapshot").exit_code == 0
+    assert config.load_state("S1")["refs"] == {"7": "#go"}
+    fake.page.target_id = "T2"
+    fake.page.evaluate_result = SNAP
+    assert invoke("snapshot").exit_code == 0
+    assert config.load_state("S1")["refs"] == {"1": "a.x"}
+    result = invoke("click", "@7")
+    assert result.exit_code == 6 and "unknown ref @7" in result.stderr
+
+
+def test_snapshot_attached_to_an_action_replaces_refs(fake, invoke):
+    fake.page.evaluate_result = {"items": [SNAP["items"][0], GO], "total": 2}
+    assert invoke("snapshot").exit_code == 0
+    fake.page.evaluate_result = SNAP  # the page after the action no longer lists @7
+    assert invoke("goto", "https://e.test/", "-s").exit_code == 0
+    assert config.load_state("S1")["refs"] == {"1": "a.x"}
+
+
+def test_a_kept_ref_whose_element_changed_is_stale(fake, invoke):
+    fake.page.evaluate_result = {"items": [GO], "total": 1}
+    assert invoke("snapshot").exit_code == 0
+    assert invoke("click", "@7").exit_code == 0
+    # the page re-rendered: the saved selector now finds another element
+    fake.page.evaluate_result = {"items": [{**GO, "name": "Delete account"}], "total": 1}
+    result = invoke("click", "@7")
+    assert result.exit_code == 6
+    assert "error [stale_ref]: @7 changed since the snapshot" in result.stderr
+    assert len(fake.page.called("click")) == 1
+    fake.page.evaluate_result = {"items": [], "total": 0}  # now hidden
+    assert invoke("click", "@7").exit_code == 6

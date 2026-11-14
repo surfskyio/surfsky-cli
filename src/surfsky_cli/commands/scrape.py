@@ -194,7 +194,7 @@ async def fetch(
     **how: Any,
 ) -> dict[str, Any]:
     if url is None or settings.session_ref():
-        async with session.attached(settings) as a:
+        async with session.attached(settings, readonly=url is None) as a:
             return await read_page(a.page, url, **how)
     kwargs = session.session_kwargs(opts)
     async with settings.client() as client:
