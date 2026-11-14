@@ -11,6 +11,7 @@ from surfsky import (
     CDPError,
     ConfigurationError,
     MonthlySessionLimitError,
+    PageClosedError,
     PaymentRequiredError,
     RateLimitError,
     ServerError,
@@ -80,6 +81,7 @@ def test_json_env_default(monkeypatch):
     [
         (out.NoSession("no browser session"), "no_session", 3, "session start"),
         (out.SessionGone("session x is gone"), "session_gone", 3, "session start"),
+        (PageClosedError("page is closed"), "error", 1, "session list"),
         (
             AuthenticationError("bad token", status_code=401),
             "auth",

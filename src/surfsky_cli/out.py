@@ -16,6 +16,7 @@ from surfsky import (
     CDPError,
     ConfigurationError,
     MonthlySessionLimitError,
+    PageClosedError,
     PaymentRequiredError,
     PremiumTrafficLimitError,
     RateLimitError,
@@ -176,6 +177,9 @@ def classify(exc: BaseException) -> CliError:
             if "timeout" in message.lower():
                 return CliError(message, code="timeout", exit_code=EXIT_TIMEOUT)
             return CliError(message, code="browser")
+        case PageClosedError():
+            hint = "the tab or the session closed: 'surfsky session list' shows running sessions"
+            return CliError(message, hint=hint)
         case _:
             return CliError(message)
 
